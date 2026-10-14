@@ -1,0 +1,63 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: Build & Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        build_type: [Release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Compiler Cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.build_type }}-${{ hashFiles('**/CMakeLists.txt') }}
+          max-size: 500M
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Run Tests
+        run: |
+          ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure --output-junit junit-report.xml
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: |
+            build/junit-report.xml
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+
+      - name: Upload Binaries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataconv-${{ matrix.os }}
+          path: |
+            build/dataconv
+            build/${{ matrix.build_type }}/dataconv.exe
+            build/dataconv.exe
+          if-no-files-found: ignore
